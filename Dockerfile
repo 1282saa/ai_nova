@@ -14,7 +14,8 @@ RUN apt-get update && apt-get install -y build-essential curl \
     && rm -rf /var/lib/apt/lists/* && apt-get clean
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+ENV PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cpu
+RUN pip install --no-cache-dir -r requirements.txt && pip cache purge
 
 COPY backend/ ./backend/
 COPY --from=frontend-builder /app/frontend/dist ./frontend/dist
