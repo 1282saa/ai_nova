@@ -1,0 +1,20 @@
+version: "3.9"
+
+services:
+  ainova:
+    container_name: ainova
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: always
+    env_file:
+      - .env # 운영용 환경 변수 파일. AWS EC2 인스턴스에 배포할 때 실제 값을 채워주세요.
+    ports:
+      - "80:8000" # 외부 80 -> 컨테이너 8000 (FastAPI 기본 포트)
+    volumes:
+      - ./logs:/app/logs # 로그를 호스트에 보존 (선택)
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
