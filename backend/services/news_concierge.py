@@ -31,7 +31,6 @@ class ConciergeRequest(BaseModel):
     include_today_issues: bool = Field(default=True, description="오늘의 이슈 포함 여부")
     include_related_questions: bool = Field(default=True, description="관련 질문 포함 여부")
     detail_level: str = Field(default="detailed", description="답변 상세도 (brief/detailed/comprehensive)")
-    provider_filter: str = Field(default="all", description="언론사 필터 (all: 전체언론사, seoul_economic: 서울경제만)")
 
 
 class ArticleReference(BaseModel):
@@ -56,7 +55,6 @@ class ConciergeResponse(BaseModel):
     today_issues: List[Dict[str, Any]] = Field(default=[], description="관련 오늘의 이슈")
     search_strategy: Dict[str, Any] = Field(description="사용된 검색 전략")
     analysis_metadata: Dict[str, Any] = Field(description="분석 메타데이터")
-    citations_used: List[Dict[str, Any]] = Field(default=[], description="실제 사용된 인용 정보")
     generated_at: str = Field(description="생성 시간")
 
 
@@ -165,7 +163,7 @@ class NewsConciergeService:
             
             # 고급 검색 실행 (10개 기사 요청)
             search_results = await self._execute_advanced_search(
-                request.question, date_from, date_to, 10, request.provider_filter  # 언론사 필터 추가
+                request.question, date_from, date_to, 10  # 10개로 확장
             )
             
             articles = search_results.get("documents", [])
@@ -384,8 +382,7 @@ class NewsConciergeService:
         question: str, 
         date_from: str, 
         date_to: str, 
-        max_articles: int,
-        provider_filter: str = "all"
+        max_articles: int
     ) -> Dict[str, Any]:
         """지능형 다단계 검색 전략 (우선순위 알고리즘 + 폴백)"""
         
@@ -406,7 +403,7 @@ class NewsConciergeService:
             
             # 다단계 검색 전략 실행
             return await self._execute_multi_stage_search(
-                unique_keywords, question, date_from, date_to, max_articles, provider_filter
+                unique_keywords, question, date_from, date_to, max_articles
             )
             
         except Exception as e:
@@ -455,20 +452,11 @@ class NewsConciergeService:
         question: str, 
         date_from: str, 
         date_to: str, 
-        max_articles: int,
-        provider_filter: str = "all"
+        max_articles: int
     ) -> Dict[str, Any]:
         """다단계 검색 전략 실행 - AND 우선에서 OR로 점진적 확장"""
         
-        self.logger.info(f"다단계 검색 시작: 키워드={keywords[:5]}, 기간={date_from}~{date_to}, 언론사 필터={provider_filter}")
-        
-        # 언론사 필터 설정
-        provider_list = None
-        if provider_filter == "seoul_economic":
-            provider_list = ["서울경제"]
-            self.logger.info("서울경제 전용 모드로 검색")
-        else:
-            self.logger.info("전체 언론사 모드로 검색")
+        self.logger.info(f"다단계 검색 시작: 키워드={keywords[:5]}, 기간={date_from}~{date_to}")
         
         all_articles = []
         search_attempts = []
@@ -483,8 +471,7 @@ class NewsConciergeService:
                     query=query,
                     date_from=date_from,
                     date_to=date_to,
-                    return_size=20,
-                    provider=provider_list
+                    return_size=20
                 )
                 
                 articles = search_result.get("return_object", {}).get("documents", [])
@@ -519,8 +506,7 @@ class NewsConciergeService:
                     query=query,
                     date_from=date_from,
                     date_to=date_to,
-                    return_size=30,
-                    provider=provider_list
+                    return_size=30
                 )
                 
                 articles = search_result.get("return_object", {}).get("documents", [])
@@ -559,8 +545,7 @@ class NewsConciergeService:
                         query=query,
                         date_from=extended_date_from,
                         date_to=date_to,
-                        return_size=25,
-                        provider=provider_list
+                        return_size=25
                     )
                     
                     articles = search_result.get("return_object", {}).get("documents", [])
@@ -599,8 +584,7 @@ class NewsConciergeService:
                         query=query,
                         date_from=extended_date_from,
                         date_to=date_to,
-                        return_size=30,
-                        provider=provider_list
+                        return_size=30
                     )
                     
                     articles = search_result.get("return_object", {}).get("documents", [])
@@ -637,8 +621,7 @@ class NewsConciergeService:
                     query=query,
                     date_from=extended_date_from,
                     date_to=date_to,
-                    return_size=20,
-                    provider=provider_list
+                    return_size=20
                 )
                 
                 articles = search_result.get("return_object", {}).get("documents", [])
@@ -1126,11 +1109,11 @@ class NewsConciergeService:
                             
                             # 문장 끝에 문장부호가 있는지 확인
                             if sentence.endswith(('.', '!', '?')):
-                                # 문장부고 전에 특별한 각주 마커 삽입
-                                new_sentence = sentence[:-1] + f"[REF:{citation_num}]" + sentence[-1]
+                                # 문장부호 전에 인용번호 삽입
+                                new_sentence = sentence[:-1] + str(citation_num) + sentence[-1]
                             else:
                                 # 문장부호가 없으면 마침표와 함께 추가
-                                new_sentence = sentence + f"[REF:{citation_num}]" + "."
+                                new_sentence = sentence + str(citation_num) + "."
                             
                             new_sentences.append(new_sentence)
                         elif sentence:  # 짧은 문장도 보존
@@ -1147,21 +1130,25 @@ class NewsConciergeService:
             # 인용 번호 추출 - 안전한 처리
             citation_numbers = []
             try:
-                # 새로운 각주 마커 패턴으로 인용번호 추출
-                citation_pattern = r'\[REF:(\d+)\]'
-                matches = re.finditer(citation_pattern, answer)
+                citation_patterns = [
+                    r'([가-힣a-zA-Z.!?])(\d+)(?=\s|$|[.!?])',  # 한글/영문/문장부호 뒤 숫자
+                    r'(\w)(\d+)(?=\s|$)',  # 단어 문자 뒤 숫자
+                    r'(\S)(\d+)(?=\s|$|[.!?])'  # 비공백 문자 뒤 숫자
+                ]
                 
-                for match in matches:
-                    try:
-                        num_str = match.group(1)
-                        if num_str and num_str.isdigit():
-                            num = int(num_str)
-                            max_citations = len(references) if references else 10
-                            if 1 <= num <= max_citations:  # 실제 참조 범위 내에서만
-                                citation_numbers.append(str(num))
-                    except (IndexError, ValueError, AttributeError) as e:
-                        self.logger.warning(f"인용 번호 추출 중 오류 무시: {e}")
-                        continue
+                for pattern in citation_patterns:
+                    matches = re.finditer(pattern, answer)
+                    for match in matches:
+                        try:
+                            num_str = match.group(2)
+                            if num_str and num_str.isdigit():
+                                num = int(num_str)
+                                max_citations = len(references) if references else 10
+                                if 1 <= num <= max_citations:  # 실제 참조 범위 내에서만
+                                    citation_numbers.append(str(num))
+                        except (IndexError, ValueError, AttributeError) as e:
+                            self.logger.warning(f"인용 번호 추출 중 오류 무시: {e}")
+                            continue
                 
                 # 중복 제거하되 순서 유지
                 seen = set()
@@ -1366,7 +1353,7 @@ class NewsConciergeService:
             )
             
             search_results = await self._execute_advanced_search(
-                request.question, date_from, date_to, 10, request.provider_filter  # 언론사 필터 추가
+                request.question, date_from, date_to, 10  # 10개로 확장
             )
             
             articles = search_results.get("documents", [])
@@ -1593,11 +1580,11 @@ class NewsConciergeService:
                     "keywords_extracted": len(extracted_keywords),
                     "ai_model": "gpt-4o-mini",  # 실제 사용하는 모델로 수정
                     "generated_at": datetime.now().isoformat(),
+                    "citations_used": parsed_response.get("citations_used", []),
                     "total_citations": parsed_response.get("total_citations", 0),
                     "related_keywords": related_keywords,
                     "related_questions_count": len(related_questions)
                 },
-                citations_used=parsed_response.get("citations_used", []),
                 generated_at=datetime.now().isoformat()
             )
             
@@ -1670,7 +1657,7 @@ class NewsConciergeService:
 
 답변 작성 규칙:
 1. 반드시 제공된 기사 내용만을 바탕으로 답변하세요
-2. 실제 기사������ ��������� ��������� ������ ������ ������ (예: 문장 끝에 1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
+2. **모든 문장의 끝에 인용 번호를 표시하세요** (예: 문장 끝에 1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
 3. 인용 번호는 문장부호 바로 뒤에 공백 없이 숫자만 표시
 4. 올바른 예: "발표했다1", "증가했다2", "예정이다3", "분석했다8", "전망이다10"
 5. 잘못된 예: "발표했다 1", "발표했다[1]", "발표했다(1)"
@@ -1679,15 +1666,14 @@ class NewsConciergeService:
 8. 기사에서 인용한 구체적인 수치나 발언이 있다면 문장 끝에 해당 기사 번호를 표시하세요
 9. 한 문장에 여러 기사의 정보가 있으면 가장 중요한 출처 하나만 표시
 
-텍스트 작성 원칙:
-- **문단을 나누어 작성**: 주제가 바뀔 때마다 빈 줄로 문단을 구분하세요
-- **자연스러운 구성**: 질문에 직접적으로 답하는 자연스러운 순서로 구성
-- **소제목 사용 금지**: 소제목 없이 자연스럽게 이어지는 내용으로 작성
+★★★ 가독성 향상 규칙 ★★★:
+- **논리적 구조**: 현재 상황 → 배경/원인 → 주요 변화 → 향후 전망 순으로 구성
+- **소제목 활용**: 내용이 길어질 경우 **현재 상황**, **주요 변화**, **향후 전망** 등 소제목 사용
 - **문장 길이 조절**: 한 문장이 너무 길지 않도록 적절히 나누어 작성
 
 ② 구체적 정보 포함 의무 (매우 중요):
-- 인명: 관련된 모든 인물의 실명과 직책을 정확히 명시 (예: "홍길동 금융위원장에 따르면")
-- 지명: 구체적인 지역명, 국가명, 도시명 등을 명확히 표기  
+- **인명**: 관련된 모든 인물의 실명과 직책을 정확히 명시 (예: "홍길동 금융위원장에 따르면")
+- **지명**: 구체적인 지역명, 국가명, 도시명 등을 명확히 표기  
 - **날짜**: 구체적인 날짜, 시간, 기간, 시점을 정확히 기재
 - **기관명**: 관련 기관, 회사, 조직의 정확한 명칭 포함
 - **수치**: 금액, 비율, 규모 등 구체적 수치 반드시 포함
@@ -1707,17 +1693,20 @@ class NewsConciergeService:
 위 10개 기사를 바탕으로 질문에 대해 상세한 답변을 작성해주세요. 
 
 ★★★ 인용 번호 표시 필수 규칙 (매우 중요) ★★★:
-1. 실제 ������������ ��������� ��������� ������ ��������� ���������������
+1. **모든 문장은 반드시 인용 번호로 끝나야 합니다**
 2. 인용 번호는 문장부호(마침표, 물음표, 느낌표) 바로 뒤에 **공백 없이** 숫자만 표시
 3. 올바른 형식: "발표했다1", "증가했다2", "예정이다3"
 4. 잘못된 형식: "발표했다 1", "발표했다[1]", "발표했다(1)"
 5. 한 문장에 여러 기사 정보가 있으면 주요 출처 하나만 표시
 
 ★★★ 가독성 향상 필수 규칙 ★★★:
-1. 문단 구분: 주제가 바뀔 때마다 반드시 빈 줄(\\n\\n)로 문단을 나누세요
-2. 자연스러운 흐��������� ���������������
-   질문에 대해 논리적이고 자연스럽게 답변하세요
-3. **소제목 사용 금지**: 소제목 없이 자연스럽게 이어지는 내용으로 작성
+1. **문단 구분**: 주제가 바뀔 때마다 반드시 빈 줄(\\n\\n)로 문단을 나누세요
+2. **논리적 구조**: 다음 순서로 작성하세요
+   - **현재 상황**: 최신 동향과 현재 상태
+   - **배경 정보**: 이에 이르게 된 배경이나 원인
+   - **주요 변화**: 핵심적인 변화나 사건들
+   - **향후 전망**: 미래 계획이나 예상되는 영향
+3. **소제목 사용**: 내용이 길어질 경우 **현재 상황**, **주요 변화**, **향후 전망** 등 굵은 글씨로 소제목 표시
 4. **적절한 문장 길이**: 한 문장이 3줄을 넘지 않도록 조절하여 읽기 쉽게 작성
 
 인용 번호 예시:
@@ -1757,7 +1746,7 @@ class NewsConciergeService:
             
             # 스트리밍 응답 처리
             for chunk in response:
-                if chunk.choices and len(chunk.choices) > 0 and chunk.choices[0].delta.content is not None:
+                if chunk.choices[0].delta.content is not None:
                     content = chunk.choices[0].delta.content
                     yield content
                     # 실시간 전송을 위한 작은 지연
@@ -1765,7 +1754,7 @@ class NewsConciergeService:
             
         except Exception as e:
             self.logger.error(f"AI 스트리밍 응답 생성 실패: {e}")
-            yield "죄송합니다. 현재 서비스에 일시적인 문제가 발생했습니다. 잠시 후 다시 시도해 주세요."
+            yield f"죄송합니다. AI 분석 중 오류가 발생했습니다: {str(e)}"
     
     def _filter_relevant_documents(self, documents: List[Dict[str, Any]], keywords: List[str], question: str) -> List[Dict[str, Any]]:
         """관련성 기반 문서 필터링 - 정확도 우선 (개선)"""

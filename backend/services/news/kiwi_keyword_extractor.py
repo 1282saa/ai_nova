@@ -130,7 +130,7 @@ class KiwiKeywordExtractor:
             result = self.kiwi.analyze(query)
             tokens = result[0][0]  # 첫 번째 분석 결과의 토큰들
         except Exception as e:
-            print(f"❌ 형태소 분석 오류: {e}")
+            print(f" 형태소 분석 오류: {e}")
             return self._fallback_extraction(query, min_length, max_keywords)
         
         # 3. 키워드 후보 추출 및 점수 계산
@@ -179,7 +179,7 @@ class KiwiKeywordExtractor:
             result = self.kiwi.analyze(query)
             tokens = result[0][0]
         except Exception as e:
-            print(f"❌ 형태소 분석 오류: {e}")
+            print(f" 형태소 분석 오류: {e}")
             return []
         
         keyword_info = []
@@ -375,11 +375,11 @@ if __name__ == "__main__":
         "SK하이닉스 메모리 반도체 글로벌 시장 진출"
     ]
     
-    print("\n🔍 키워드 추출 테스트:")
+    print("\n 키워드 추출 테스트:")
     print("=" * 80)
     
     for query in test_queries:
-        print(f"\n📝 쿼리: {query}")
+        print(f"\n 쿼리: {query}")
         
         # 기본 키워드 추출
         keywords = extractor.extract_keywords(query)
