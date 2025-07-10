@@ -49,3 +49,5 @@ aiohttp>=3.8.5
 # 테스팅
 pytest>=7.4.0
 pytest-asyncio>=0.21.1
+
+kiwipiepy>=0.3.0
